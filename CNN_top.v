@@ -11,10 +11,29 @@ output      wire signed [63:0]          data_out//最终注意力分数，两个
 reg [7:0] cnt;
 genvar i;
 
+// is_first_read信号 确定是否是第一次加载数据
+// 知道buffer0_1已经读完，cnt才开始计数
+localparam FIRST_FRAME_END = 8'd92; 
+
+reg is_first_read;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        // 复位时，默认处于“第一次加载”阶段
+        is_first_read <= 1'b1;
+    end else begin
+        // 关键逻辑：一旦计数器达到你算好的那个值
+        if (cnt == FIRST_FRAME_END) begin
+            is_first_read <= 1'b0; // 以后永久为 0，除非系统复位
+        end
+        // 注意：这里不需要写 else is_first_read <= 1'b1;
+        // 这样它就会在变 0 后一直保持 0 状态
+    end
+end
 always @(posedge clk or negedge rst_n)begin
     if(!rst_n)
         cnt <= 7'b0;
-    else if(enable)
+    else if(enable && !is_first_read)
         cnt <= cnt + 1;
     else
         cnt <= cnt;
@@ -28,6 +47,32 @@ always @(posedge clk or negedge rst_n)begin
     else
         enable_out <= 1'b0;
 end
+
+
+wire [55:0] sa1_data_in;
+wire [55:0] buffer0_1out;
+wire [55:0] buffer0_2out;
+// !!! 补充cnt控制 sa1_data_in的输入数据选择，是buffer0_1out还是buffer0_2out
+// ！！！ 不一定是cnt，也可以是enable控制
+// enable 的含义是 为0代表可以从内存读取数据 ，不能给sa1输出数据
+// 为1代表不能从内存读取数据，给sa1输出数据
+BUFFER_0        buffer0_1(
+.clk                (clk),
+.rst_n              (rst_n),
+.enable             (enable_buffer0_1),
+.data_in            (data_in),
+.data_out           (buffer0_1out),
+);
+BUFFER_0        buffer0_2(
+.clk                (clk),
+.rst_n              (rst_n),
+.enable             (enable_buffer0_2),
+.data_in            (data_in),
+.data_out           (buffer0_2out),
+);
+// 两个buffer，一个读，一个写，交替使用
+// cnt控制enable_buffer0_1和enable_buffer0_2的使能时序，buffer1_addr的地址递增时序 
+
 
 //SA1第一层卷积
 wire    signed  [32*616-1:0]    weight_1;//32通道*11*7 个权重，每个8bit
@@ -79,7 +124,7 @@ SA1     sa1(
     .clk                (clk),
     .rst_n              (rst_n),
     .sa1_control         (sa1_control),
-    .data_in            (data_in),
+    .data_in            (sa1_data_in),
     .weight             (weight_1),
     .data_out           (data_o_1)
 );
