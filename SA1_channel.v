@@ -1,7 +1,7 @@
 module SA1_channel(
     input wire clk,
     input wire rst_n,
-    input wire sa1_control, //SA1控制信号，右移时为1
+    input reg sa1_control, //SA1控制信号，右移时为1
     input wire signed [55:0] data_in, //7*8bit输入数据，按行脉动进入
     input wire signed [615:0] weight, //11*7*8bit权重
     output wire signed [31:0] data_out
@@ -17,6 +17,7 @@ wire signed     [32*7-1:0]      partial_product_temp_l4;
 wire signed     [32*3-1:0]      partial_product_temp_l5; 
 wire signed     [32*2-1:0]      partial_product_temp_l6; 
 
+// sa1_control信号的前一个cycle的信号值
 reg sa1_control_d1;
 wire p_control;
 always @(posedge clk or negedge rst_n) begin
@@ -34,7 +35,8 @@ reg m_control;
 wire sa1_falling_edge;
 assign sa1_falling_edge = (~sa1_control) & sa1_control_d1;
 
-// 2. m_control 状态切换逻辑
+// 2. m_control 状态 控制卷积核是下滑还是上滑
+// m_control为0时表示卷积核下滑，数据从上一行输入；m_control为1时表示卷积核上滑，数据从下一行输入
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         m_control <= 1'b0;
@@ -46,99 +48,51 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-
-//生成11行7列的PE阵列
+genvar i, j;
 generate
-for(i = 0;i < 11;i = i + 1)begin:row_loop
-    for(j = 0;j < 7;j = j + 1)begin:col_loop
-        if(sa1_control == 1'b0)begin//右移时输入数据来自上一行
-            if(m_control == 1'b0)begin//卷积核下滑
-                if(i == 10)begin//最后一行 PE输入数据直接来自data_in
-                    PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_in[j*8 + 7:j*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                );
-                end
-                else begin
-                    PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_temp[(i*7+j+7)*8 + 7 : (i*7+j+7)*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                    );
-                end
-            end
-            else begin//卷积核上滑
-                if(i == 0)begin//第一行 PE输入数据直接来自data_in
-                    PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_in[j*8 + 7:j*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                    );
-                end
-                else begin
-                    PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_temp[(i*7+j-7)*8 + 7 : (i*7+j-7)*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                    );
-                end
-        end
-        else begin
-            if(p_control == 1'b0)begin//右移时 此时是第一个cycle，总共需要两个cycle才能完成数据的右移
+    for(i = 0; i < 11; i = i + 1) begin:row_loop
+        for(j = 0; j < 7; j = j + 1) begin:col_loop
+            
+            // 1. 定义一个中间变量，用来存放选中的输入数据
+            wire [7:0] selected_data_in;
 
-                if(j==6)begin//右移时最后一列 PE输入数据直接来自data_in
-                    if(i<=6) begin
-                        PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_in[i*8 + 7:i*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                    );
-                    end
-                    
-                end
-                else begin
-                    PE  array_pe(
-                        .clk            (clk),
-                        .rst_n          (rst_n),
-                        .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                        .data_in        (data_temp[(i*7+j+1)*8 + 7 : (i*7+j+1)*8]),
-                        .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                        .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                    );
-                end
-            end
-            else begin//右移时 此时是第二个cycle，完成数据的右移,此时p_control为1
-                if(j==6)begin
-                    if(i>6) begin
-                        PE  array_pe(
-                            .clk            (clk),
-                            .rst_n          (rst_n),
-                            .weight         (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
-                            .data_in        (data_in[(i-7)*8 + 7 : (i-7)*8]),
-                            .data_out       (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                            .temp_product   (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])  
-                        );
-                    end
-                end
-            end
+            // 2. 使用组合逻辑 (MUX) 根据控制信号选择数据来源
+            // 这部分是运行时的逻辑，不是生成时的逻辑
+            assign selected_data_in = 
+                (sa1_control == 1'b0) ? (
+                    // --- 纵向滑动模式 ---
+                    (m_control == 1'b0) ? ( 
+                        (i == 10) ? data_in[j*8+7:j*8] : data_temp[(i*7+j+7)*8+7:(i*7+j+7)*8] 
+                    ) : ( 
+                        (i == 0)  ? data_in[j*8+7:j*8] : data_temp[(i*7+j-7)*8+7:(i*7+j-7)*8] 
+                    )
+                ) : (
+                    // --- 横向右移模式 ---
+                    (p_control == 1'b0) ? (
+                        // Cycle 1: 右移第一步
+                        (j == 6) ? ( (i <= 6) ? data_in[i*8+7:i*8] : 8'b0 ) : 
+                                data_temp[(i*7+j+1)*8+7:(i*7+j+1)*8]
+                    ) : (
+                        // Cycle 2: 右移第二步 (修改处)
+                        (j == 6) ? ( 
+                            (i > 6) ? data_in[(i-7)*8+7:(i-7)*8] : data_temp[(i*7+j)*8+7:(i*7+j)*8] // i<=6 时保持当前值或从temp取
+                        ) : (
+                            data_temp[(i*7+j)*8+7:(i*7+j)*8] 
+                        )
+                    )
+                );
+
+            // 3. 实例化 PE，将选好的数据连进去
+            PE array_pe (
+                .clk           (clk),
+                .rst_n         (rst_n),
+                .weight        (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
+                .data_in       (selected_data_in), // 连入选择后的信号
+                .data_out      (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
+                .temp_product  (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])
+            );
+        end
     end
-end
 endgenerate
 
 wire signed  [31:0]  adderTreeReg       [10*7 - 1:0];//用于存储列加法树各级的中间结果

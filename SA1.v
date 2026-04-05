@@ -1,16 +1,16 @@
 module SA1(
     input wire clk,
     input wire rst_n,
-    input wire sa1_control, //SA1控制信号，右移时为1
+    input reg sa1_control, //SA1控制信号，右移时为1
     input wire signed [56-1:0] data_in,   //7*8bit输入数据
     input wire signed [32*616-1:0] weight,  //32*11*7*8bit权重拼接
     output wire signed [32*32-1:0] data_out //32*32bit输出拼接
 );
 
     genvar i;
-    //实例化32个SA1_channel
+    //实例化4个SA1_channel
     generate
-        for (i = 0; i < 32; i = i + 1) begin : sa1_channels
+        for (i = 0; i < 4; i = i + 1) begin : sa1_channels
             SA1_channel u_SA1_channel (
                 .clk(clk),
                 .rst_n(rst_n),
