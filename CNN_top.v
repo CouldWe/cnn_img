@@ -272,7 +272,7 @@ wire    signed  [4*32-1:0]        data_o_3;//4通道 * 32bit
 wire    signed  [32*16-1:0]     bias_3;
 wire    signed  [32*32-1:0]     after_bias_3;
 wire    signed  [32*8-1:0]      after_quant_3;
-wire    signed  [32*8-1:0]      after_relu_3;
+wire    signed  [32*2*8-1:0]      after_relu_3;
 
 //测试线
 // wire    signed  [7:0]           sa3In_C0;
@@ -301,10 +301,30 @@ generate
         assign sa3_weight_in[(4*8)*(i+1)-1:(4*8)*i] = weight_3[i*32*8+(4*8)*(counter+1)-1:(4*8)*counter+i*32*8];
     end
 endgenerate
+reg [2:0] group_cnt;
+reg [5:0] spatial_cnt;  // 如果是 18*2，就用 6 位更稳妥
 wire            sa3_acc_valid;
 wire    [4:0]   sa3_acc_addr;
-assign sa3_acc_valid = (cnt >= 8'd107 && cnt <= 8'd124);
-assign sa3_acc_addr  = cnt - 8'd107;
+// assign sa3_acc_valid = (cnt >= 8'd107 && cnt <= 8'd124);
+assign sa3_acc_valid = enable;
+// assign sa3_acc_addr  = cnt - 8'd107;
+assign sa3_acc_addr  = spatial_cnt[4:0];  // 若只有 18 个地址可用 5 位；18*2 建议改成 6 位
+always @(posedge clk or negedge rst_n) begin
+    if(!rst_n) begin
+        group_cnt   <= 3'd0;
+        spatial_cnt <= 6'd0;
+    end else if(enable) begin
+        if(spatial_cnt == 6'd35) begin
+            spatial_cnt <= 6'd0;
+            if(group_cnt == 3'd7)
+                group_cnt <= 3'd0;
+            else
+                group_cnt <= group_cnt + 1'b1;
+        end else begin
+            spatial_cnt <= spatial_cnt + 1'b1;
+        end
+    end
+end
 //实例化SA3
 SA_3     sa3(
     .clk                (clk),
@@ -390,8 +410,12 @@ always @(negedge clk or negedge rst_n)begin
 end
 
 //最大池化
+// 输入32通道 18*2*8bit，输出32通道 9*1*8bit
+// 先输入 完一个通道的全部数据（18*2=36个数据），再切换到下一个通道
+// 速度 每个cycle输入一个2*8bit数据
+// 读取的数据假设从 after_relu_3 来
 reg                         enable_poolmax;
-wire  signed  [7:0]         poolmax_out[31:0];
+wire  signed  [7:0]         poolmax_out [31:0];
 
 generate
     for(i=0;i<32;i = i+1)begin:temp_4
@@ -399,8 +423,7 @@ generate
             .clk                (clk),
             .rst_n              (rst_n),
             .enable             (enable_poolmax),
-            .data_in            (after_relu_3[i*8+7:i*8]),//当前列数据
-            .buffer_3           (buffer3_out[i*8+7:i*8]), //上一列数据
+            .data_in            (after_relu_3[i*2*8+16-1:i*2*8]),
             .data_max           (poolmax_out[i])
         );
     end
