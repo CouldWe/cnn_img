@@ -1,15 +1,16 @@
 module SA1_channel(
     input wire clk,
     input wire rst_n,
-    input reg sa1_control, //SA1控制信号，右移时为1
+    input wire sa1_control,        // SA1控制信号，右移时为1
+    input wire   [2:0] counter,//counter，PE arry设计为4通道，counter用于记录现在为第几个四通道，最小0，最大7 
     input wire signed [55:0] data_in, //7*8bit输入数据，按行脉动进入
     input wire signed [615:0] weight, //11*7*8bit权重
     output wire signed [31:0] data_out
 );
 
 genvar i,j;
-wire signed     [615:0]         data_temp   ;//用于P之间传递的脉动数据，宽度与weight相同
-wire signed     [2463:0]        partial_product_temp    ;//所有PE的乘积结果，32*77
+wire signed     [615:0]         data_temp   ;//用于PE之间传递的脉动数据，宽度与weight相同
+wire signed     [32*11*7-1:0]        partial_product_temp    ;//所有PE的乘积结果，32*11*7
 //加法树各级部分和信号
 wire signed     [32*5*7-1:0]    partial_product_temp_l2; 
 wire signed     [32*3*7-1:0]    partial_product_temp_l3; 
@@ -27,8 +28,19 @@ always @(posedge clk or negedge rst_n) begin
         sa1_control_d1 <= sa1_control;
     end
 end
+
 assign p_control = sa1_control & sa1_control_d1;
 // p_control为0时表示当前cycle是SA1的第一个cycle；p_control为1时表示当前cycle是SA1的第二个cycle
+
+//r_or_l，用于控制卷积核向左滑动还是向右滑动，r_or_l=0时，卷积核向右滑动
+reg r_or_l;
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        r_or_l<= 1'b0;
+    end else if(counter==0||counter==2||counter==4||counter==6) begin
+         r_or_l<= 1'b0;
+    end else  r_or_l<= 1'b1;
+end
 
 // 控制上滑还是下滑
 reg m_control;
@@ -43,53 +55,53 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         if (sa1_falling_edge) begin
             // 右移结束，开始上滑
-            m_control <= 1'b1+m_control; // 切换到上滑状态
+            m_control <= ~m_control; // 切换到上滑状态
         end
     end
 end
 
-genvar i, j;
+// ===================== 11×7 卷积核数据选择（核心逻辑） =====================
 generate
-    for(i = 0; i < 11; i = i + 1) begin:row_loop
-        for(j = 0; j < 7; j = j + 1) begin:col_loop
+    for(i = 0; i < 11; i = i + 1) begin: row_loop  // 11行
+        for(j = 0; j < 7; j = j + 1) begin: col_loop   // 7列
+            // 修复：定义为有符号数，匹配输入数据类型
+            wire signed [7:0] selected_data_in;  // 每个位置选中的8bit数据
+
+            // 组合逻辑MUX：根据控制信号选通数据
+            assign selected_data_in =
+            // ========== 公共部分：纵向滑动（r_or_l不影响纵向逻辑） ==========
+            (sa1_control == 1'b0) ? (
+                (m_control == 1'b0) ?
+                    // 下滑：数据来自下一行，最后一行取外部输入
+                    (i == 10) ? data_in[j*8 +: 8] : data_temp[(i*7+j+7)*8 +: 8] :
+                    // 上滑：数据来自上一行，第一行取外部输入
+                    (i == 0)  ? data_in[j*8 +: 8] : data_temp[(i*7+j-7)*8 +: 8]
+            ) :
+            // ========== 横向滑动：右滑(r_or_l=0) / 左滑(r_or_l=1) ==========
+            (r_or_l == 1'b0) ?
+                // --------------- 右滑模式 ---------------
+                (p_control == 1'b0) ?
+                    // 右滑第1周期
+                    (j == 6) ? ((i <= 6) ? data_in[i*8 +: 8] : 8'sb0) : data_temp[(i*7+j+1)*8 +: 8] :
+                    // 右滑第2周期
+                    (j == 6) ? ((i > 6) ? data_in[(i-7)*8 +: 8] : data_temp[(i*7+j)*8 +: 8]) : data_temp[(i*7+j)*8 +: 8]
+            :
+                // --------------- 左滑模式 ---------------
+                (p_control == 1'b0) ?
+                    // 修复：左滑边界修正为j==0（7列卷积核最左列为0，原j==1逻辑错误）
+                    (j == 0) ? ((i <= 6) ? data_in[i*8 +: 8] : 8'sb0) : data_temp[(i*7+j-1)*8 +: 8] :
+                    // 修复：左滑边界修正为j==0
+                    (j == 0) ? ((i > 6) ? data_in[(i-7)*8 +: 8] : data_temp[(i*7+j)*8 +: 8]) : data_temp[(i*7+j)*8 +: 8];
             
-            // 1. 定义一个中间变量，用来存放选中的输入数据
-            wire [7:0] selected_data_in;
-
-            // 2. 使用组合逻辑 (MUX) 根据控制信号选择数据来源
-            // 这部分是运行时的逻辑，不是生成时的逻辑
-            assign selected_data_in = 
-                (sa1_control == 1'b0) ? (
-                    // --- 纵向滑动模式 ---
-                    (m_control == 1'b0) ? ( 
-                        (i == 10) ? data_in[j*8+7:j*8] : data_temp[(i*7+j+7)*8+7:(i*7+j+7)*8] 
-                    ) : ( 
-                        (i == 0)  ? data_in[j*8+7:j*8] : data_temp[(i*7+j-7)*8+7:(i*7+j-7)*8] 
-                    )
-                ) : (
-                    // --- 横向右移模式 ---
-                    (p_control == 1'b0) ? (
-                        // Cycle 1: 右移第一步
-                        (j == 6) ? ( (i <= 6) ? data_in[i*8+7:i*8] : 8'b0 ) : 
-                                data_temp[(i*7+j+1)*8+7:(i*7+j+1)*8]
-                    ) : (
-                        // Cycle 2: 右移第二步 (修改处)
-                        (j == 6) ? ( 
-                            (i > 6) ? data_in[(i-7)*8+7:(i-7)*8] : data_temp[(i*7+j)*8+7:(i*7+j)*8] // i<=6 时保持当前值或从temp取
-                        ) : (
-                            data_temp[(i*7+j)*8+7:(i*7+j)*8] 
-                        )
-                    )
-                );
-
+            // 修复：PE实例化放入generate循环内部，生成11x7=77个PE
             // 3. 实例化 PE，将选好的数据连进去
             PE array_pe (
                 .clk           (clk),
                 .rst_n         (rst_n),
-                .weight        (weight[(i*7+j)*8 + 7:(i*7+j)*8]),
+                .weight        (weight[(i*7+j)*8 +: 8]),
                 .data_in       (selected_data_in), // 连入选择后的信号
-                .data_out      (data_temp[(i*7+j)*8 + 7 : (i*7+j)*8]),
-                .temp_product  (partial_product_temp[(i*7+j)*32+31:(i*7+j)*32])
+                .data_out      (data_temp[(i*7+j)*8 +: 8]),
+                .temp_product  (partial_product_temp[(i*7+j)*32 +: 32])
             );
         end
     end
@@ -97,7 +109,10 @@ endgenerate
 
 wire signed  [31:0]  adderTreeReg       [10*7 - 1:0];//用于存储列加法树各级的中间结果
 wire signed  [31:0]  inputReg           [11*7 - 1:0];//寄存77个PE的乘积结果
-for(i = 0;i < 7;i = i + 1)begin
+
+// 修复：列加法树for循环用generate包裹，符合Verilog语法
+generate
+for(i = 0;i < 7;i = i + 1)begin: col_add_tree
 //寄存每一行的乘积结果，共11行
 FF_32    inputBuffer0(.clk(clk),.rst_n(rst_n),.data_in(partial_product_temp[(0*7+i)*32+31:(0*7+i)*32]),.data_out(inputReg[0*7+i]));
 FF_32    inputBuffer1(.clk(clk),.rst_n(rst_n),.data_in(partial_product_temp[(1*7+i)*32+31:(1*7+i)*32]),.data_out(inputReg[1*7+i]));
@@ -136,6 +151,7 @@ assign partial_product_temp_l4[32*i + 31:32*i]   = $signed(adderTreeReg[6*7+i]) 
 //寄存第三级结果
 FF_32    treeBuffer9(.clk(clk),.rst_n(rst_n),.data_in(partial_product_temp_l4[32*i + 31:32*i]),.data_out(adderTreeReg[9*7+i]));
 end
+endgenerate
 
 //行加法树
 wire signed  [31:0]  adderTreeReg2    [5:0];//用于存储跨列加法的中间结果

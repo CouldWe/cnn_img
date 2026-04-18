@@ -13,7 +13,7 @@ genvar i;
 parameter cnt_max = 8'd153;//计数器最大值，根据需要调整
 reg [2:0] counter;//记录cnt到达max的次数，达到8次时表示完成了的卷积计算
 
-// counter
+// counter，PE arry设计为4通道，counter用于记录现在为第几个四通道，最小0，最大7
 always @(posedge clk or negedge rst_n) begin
     if(!rst_n)
         counter <= 3'b0;
@@ -49,6 +49,7 @@ always @(posedge clk or negedge rst_n)begin
         cnt <= cnt;
 end
 
+//enable_out
 always @(posedge clk or negedge rst_n)begin
     if(!rst_n)
         enable_out <= 1'b0;
@@ -60,36 +61,36 @@ end
 
 //SA1第一层卷积
 wire    signed  [32*616-1:0]    weight_1;//32通道*11*7 个权重，每个8bit
-wire    signed  [32*32-1:0]     data_o_1;//SA1输出的32通道卷积结果，每个通道32bit
+wire    signed  [4*32-1:0]     data_o_1;//SA1输出的4通道卷积结果，每个通道32bit
 wire    signed  [32*16-1:0]     bias_1;//32通道偏置，每个16bit
-wire    signed  [32*32-1:0]     after_bias_1;
-wire    signed  [32*8-1:0]      after_quant_1;
-wire    signed  [32*8-1:0]      after_relu_1;
+wire    signed  [4*32-1:0]     after_bias_1;
+wire    signed  [4*8-1:0]      after_quant_1;
+wire    signed  [4*8-1:0]      after_relu_1;
 
 //为了调试方便，引出通道0和通道1的一些中间信号
-wire    signed  [31:0]          data_o_channel0;
-wire    signed  [31:0]          after_bias_channel0;
-wire    signed  [7:0]           after_quant_channel0;
-wire    signed  [7:0]           output_1;
-wire    signed  [15:0]          bias1_channel0;
+// wire    signed  [31:0]          data_o_channel0;
+// wire    signed  [31:0]          after_bias_channel0;
+// wire    signed  [7:0]           after_quant_channel0;
+// wire    signed  [7:0]           output_1;
+// wire    signed  [15:0]          bias1_channel0;
 
-wire    signed  [31:0]          data_o_channel1;
-wire    signed  [31:0]          after_bias_channel1;
-wire    signed  [7:0]           after_quant_channel1;
-wire    signed  [7:0]           output_2;
-wire    signed  [15:0]          bias1_channel1;
+// wire    signed  [31:0]          data_o_channel1;
+// wire    signed  [31:0]          after_bias_channel1;
+// wire    signed  [7:0]           after_quant_channel1;
+// wire    signed  [7:0]           output_2;
+// wire    signed  [15:0]          bias1_channel1;
 
-assign output_1 = after_relu_1[7:0];
-assign data_o_channel0 = data_o_1[31:0];
-assign after_bias_channel0 = after_bias_1[31:0];
-assign after_quant_channel0 = after_quant_1[7:0];
-assign bias1_channel0   =   bias_1[15:0];
+// assign output_1 = after_relu_1[7:0];
+// assign data_o_channel0 = data_o_1[31:0];
+// assign after_bias_channel0 = after_bias_1[31:0];
+// assign after_quant_channel0 = after_quant_1[7:0];
+// assign bias1_channel0   =   bias_1[15:0];
 
-assign output_2 = after_relu_1[15:8];
-assign data_o_channel1 = data_o_1[63:32];
-assign after_bias_channel1 = after_bias_1[63:32];
-assign after_quant_channel1 = after_quant_1[15:8];
-assign bias1_channel1   =   bias_1[31:16];
+// assign output_2 = after_relu_1[15:8];
+// assign data_o_channel1 = data_o_1[63:32];
+// assign after_bias_channel1 = after_bias_1[63:32];
+// assign after_quant_channel1 = after_quant_1[15:8];
+// assign bias1_channel1   =   bias_1[31:16];
 
 //第一层卷积的权重和偏置
 assign bias_1={
@@ -115,24 +116,28 @@ end
 
 
 // counter为0时 用的是weight_1的前4*7*11*8bit 位,每次counter加1，weight_1使用后4*7*11*8bit，直到counter为7时 用的是weight_1的最后4*7*11*8bit 位
-//实例化第一层卷积核SA1，T0-T119输入特征图脉动进入SA1进行第一层卷积运算
 // sa1_weight_in 4*7*11*8bit
 wire [4*7*11*8-1:0] sa1_weight_in;
 assign sa1_weight_in = weight_1[(4*7*11*8)*(counter+1)-1:(4*7*11*8)*counter];
+// 对bias的切片
+wire    signed  [4*16-1:0]     sa1_bias;
+assign sa1_bias = bias_1[(4*16)*(counter+1)-1:(4*16)*counter];
+//实例化第一层卷积核SA1，T0-T119输入特征图脉动进入SA1进行第一层卷积运算
 SA1     sa1(
     .clk                (clk),
     .rst_n              (rst_n),
-    .sa1_control         (sa1_control),
+    .sa1_control        (sa1_control),
+    .counter            (counter),
     .data_in            (data_in),
     .weight             (sa1_weight_in),
     .data_out           (data_o_1)
 );
 
 //第一层后处理：偏置、重量化、ReLU
-wire    signed  [31:0]  quantBuffer1    [31:0];
+wire    signed  [31:0]  quantBuffer1    [3:0];
 generate
-    for(i=0;i<32;i = i+1)begin:temp_1
-        assign after_bias_1[32*i+31:32*i] = $signed(data_o_1[32*i+31:32*i]) + $signed(bias_1[16*i+15:16*i]);
+    for(i=0;i<4;i = i+1)begin:temp_1
+        assign after_bias_1[32*i+31:32*i] = $signed(data_o_1[32*i+31:32*i]) + $signed(sa1_bias[16*i+15:16*i]);
         FF_32    qb1(.clk(clk),.rst_n(rst_n),.data_in(after_bias_1[32*i+31:32*i]),.data_out(quantBuffer1[i]));//一级寄存器，减少关键路径
         rescale_conv   quant_1(
             .clk                (clk),
@@ -149,17 +154,31 @@ endgenerate
 
 //数据进入第一缓存层
 reg                         enable_buffer1;
-wire    signed  [767:0]     buffer1_out;//buffer1的768位输出，3×32×8
+wire    signed  [4*3*8-1:0]     buffer1_out;//buffer1的输出，4*3*8bit
 reg     [5:0]               buffer1_addr;
 
 //T19-T38/T49-T68/T79-T98/T109-T128，第一缓存层收到结果
+// 
 always @(posedge clk or negedge rst_n)begin
     if(!rst_n)
         enable_buffer1 <= 1'b0;
-    else if((cnt >= 18 && cnt <= 37)||(cnt >= 48 && cnt <= 67)||(cnt >= 78 && cnt <= 97)||(cnt >= 108 && cnt <= 127))
+    else if((cnt >= 11 && cnt <= 30)||(cnt >= 32 && cnt <= 51)||(cnt >= 74 && cnt <= 93))
         enable_buffer1 <= 1'b1;
     else
         enable_buffer1 <= 1'b0;
+end
+
+// T56-T75/T77-T96，第一缓存层输出结果进入第二层卷积SA2
+always @(posedge clk or negedge rst_n)begin
+    if(!rst_n)
+        buffer1_addr <= 6'b0;
+    else if (buffer1_addr == 6'd39) begin
+        buffer1_addr <= 0;
+    end
+    else if(cnt >= 56 && cnt <= 75 || cnt >=77 && cnt <= 96)
+        buffer1_addr <= buffer1_addr + 1;
+    else
+        buffer1_addr <= buffer1_addr;
 end
 //实例化第一缓存层
 sramBuffer1        buffer1(
@@ -167,59 +186,61 @@ sramBuffer1        buffer1(
 .rst_n              (rst_n),
 .enable             (enable_buffer1),
 .data_in            (after_relu_1),
-.data_out           (buffer1_out),
-.raddr              (buffer1_addr)
+.raddr              (buffer1_addr),
+.counter            (counter),
+.data_out           (buffer1_out)
 );
-
-//T90-T129，生成buffer1的读地址，T91-T130读出数据
-always @(posedge clk or negedge rst_n)begin
-    if(!rst_n)
-        buffer1_addr <= 1'b0;
-    else if(cnt >= 90 && cnt <= 128)
-        buffer1_addr <= buffer1_addr + 1;
-    else
-        buffer1_addr <= 1'b0;
-end
 
 //SA2第二层卷积
 wire    signed  [2303:0]        weight_2;//32通道 * (3*3*8)
-wire    signed  [1023:0]        data_o_2;//32通道 * 32bit
+wire    signed  [4*32-1:0]        data_o_2;//4通道 * 32bit
 wire    signed  [32*16-1:0]     bias_2;
-wire    signed  [32*32-1:0]     after_bias_2;
-wire    signed  [32*8-1:0]      after_quant_2;
-wire    signed  [32*8-1:0]      after_relu_2;
+wire    signed  [4*32-1:0]     after_bias_2;
+wire    signed  [4*8-1:0]      after_quant_2;
+wire    signed  [4*8-1:0]      after_relu_2;
 
 //测试线
-wire    signed  [31:0]          data_o2_channel0;
-wire    signed  [31:0]          after_bias2_channel0;
-wire    signed  [7:0]           after_quant2_channel0;
-wire    signed  [7:0]           buffer1_out_channel0;
-wire    signed  [7:0]           buffer1_out_channel02;
-assign data_o2_channel0 = data_o_2[31:0];
-assign after_bias2_channel0 = after_bias_2[31:0];
-assign after_quant2_channel0 = after_quant_2[7:0];
-assign buffer1_out_channel0 = buffer1_out[7:0];
-assign buffer1_out_channel02 = buffer1_out[263:256];
+// wire    signed  [31:0]          data_o2_channel0;
+// wire    signed  [31:0]          after_bias2_channel0;
+// wire    signed  [7:0]           after_quant2_channel0;
+// wire    signed  [7:0]           buffer1_out_channel0;
+// wire    signed  [7:0]           buffer1_out_channel02;
+// assign data_o2_channel0 = data_o_2[31:0];
+// assign after_bias2_channel0 = after_bias_2[31:0];
+// assign after_quant2_channel0 = after_quant_2[7:0];
+// assign buffer1_out_channel0 = buffer1_out[7:0];
+// assign buffer1_out_channel02 = buffer1_out[263:256];
 //第二层卷积的权重和偏置
 assign bias_2={
 16'd592, 16'd1155, -16'd1094, -16'd514, 16'd348, -16'd1118, 16'd957, -16'd987, -16'd842, -16'd933, -16'd1119, -16'd751, -16'd190, -16'd461, -16'd1239, -16'd118, -16'd1440, -16'd426, -16'd889, 16'd19, 16'd614, 16'd645, 16'd1128, -16'd748, -16'd274, 16'd1102, -16'd920, -16'd1014, 16'd1016, -16'd788, -16'd1164, 16'd1009
 };
+// weight_2 大小 32*3*3*8bit = 32*72bit = 2304bit
 assign  weight_2={
 -8'd77, 8'd18, -8'd43, 8'd44, 8'd25, 8'd14, 8'd33, -8'd56, -8'd21, -8'd43, 8'd25, -8'd13, -8'd16, 8'd4, 8'd2, 8'd18, -8'd32, 8'd2, 8'd48, 8'd41, -8'd2, 8'd26, 8'd3, 8'd37, -8'd38, -8'd18, -8'd23, -8'd49, 8'd17, -8'd29, 8'd41, -8'd12, 8'd1, 8'd51, 8'd28, 8'd2, 8'd3, -8'd14, 8'd47, -8'd45, 8'd9, 8'd12, 8'd17, -8'd18, -8'd17, 8'd14, 8'd7, 8'd16, 8'd4, 8'd9, 8'd10, 8'd5, 8'd2, 8'd3, -8'd28, -8'd30, -8'd11, 8'd6, 8'd31, -8'd16, 8'd15, -8'd2, -8'd4, 8'd24, -8'd2, -8'd9, 8'd25, 8'd28, -8'd30, 8'd26, -8'd21, -8'd25, 8'd4, -8'd2, 8'd17, -8'd7, 8'd11, 8'd12, 8'd3, 8'd8, 8'd19, -8'd16, 8'd19, 8'd10, 8'd6, -8'd6, 8'd1, 8'd12, 8'd4, 8'd17, -8'd11, 8'd31, 8'd17, -8'd6, -8'd15, 8'd5, 8'd29, -8'd6, 8'd9, 8'd13, 8'd6, -8'd2, -8'd0, -8'd2, 8'd15, 8'd16, -8'd6, 8'd8, 8'd27, -8'd15, -8'd8, -8'd13, -8'd20, 8'd27, -8'd14, 8'd13, 8'd20, 8'd12, 8'd10, -8'd5, -8'd5, 8'd19, -8'd21, -8'd3, 8'd16, -8'd2, 8'd23, -8'd10, 8'd28, 8'd17, 8'd22, 8'd2, 8'd1, -8'd19, 8'd11, 8'd10, 8'd106, -8'd37, -8'd128, 8'd22, 8'd55, 8'd3, -8'd72, -8'd16, 8'd45, 8'd34, 8'd19, 8'd3, -8'd11, -8'd4, -8'd13, -8'd2, 8'd18, -8'd1, -8'd13, 8'd12, -8'd4, 8'd5, 8'd18, -8'd5, -8'd15, 8'd16, 8'd21, -8'd6, 8'd15, -8'd26, 8'd26, 8'd16, 8'd2, -8'd11, -8'd3, 8'd4, 8'd17, -8'd27, -8'd21, -8'd25, 8'd25, 8'd12, -8'd21, 8'd27, -8'd9, 8'd23, -8'd21, -8'd16, 8'd10, 8'd9, -8'd10, -8'd3, -8'd19, -8'd28, -8'd3, -8'd7, -8'd31, 8'd30, -8'd5, 8'd15, -8'd19, -8'd0, -8'd46, -8'd52, -8'd3, 8'd50, 8'd16, 8'd16, -8'd47, 8'd27, -8'd42, 8'd41, -8'd35, -8'd3, -8'd11, -8'd8, 8'd14, 8'd22, 8'd24, 8'd3, -8'd33, -8'd13, -8'd12, -8'd23, 8'd34, -8'd15, -8'd22, 8'd30, 8'd37, -8'd15, -8'd20, -8'd2, 8'd4, 8'd12, -8'd17, 8'd18, -8'd18, -8'd11, -8'd7, -8'd3, 8'd15, 8'd14, 8'd12, -8'd2, -8'd9, 8'd15, 8'd14, 8'd11, 8'd1, -8'd1, 8'd6, 8'd10, 8'd5, 8'd13, -8'd1, 8'd14, -8'd2, 8'd14, -8'd4, -8'd10, -8'd20, -8'd22, 8'd51, -8'd5, -8'd6, -8'd3, 8'd6, 8'd12, 8'd5, 8'd8, 8'd12, -8'd12, -8'd7, 8'd5, -8'd13, 8'd13, 8'd18, 8'd6, 8'd12, -8'd0, 8'd25, 8'd24, 8'd7, -8'd12, -8'd5, 8'd37, -8'd36, 8'd10, 8'd22, -8'd7, 8'd5, -8'd8
 };
+
+// 取4通道 的weight_2进行测试
+wire   signed  [4*3*3*8-1:0]     sa2_weight_in;
+assign sa2_weight_in = weight_2[(4*3*3*8)*(counter+1)-1:(4*3*3*8)*counter];
+// 对bias的切片
+wire    signed  [4*16-1:0]     sa2_bias;
+assign sa2_bias = bias_2[(4*16)*(counter+1)-1:(4*16)*counter];
+
+
 //实例化SA2
 SA_2     sa2(
     .clk                (clk),
     .rst_n              (rst_n),
     .data_in            (buffer1_out),
-    .weight             (weight_2),
-    .data_out           (data_o_2)
+    .weight             (sa2_weight_in),
+    .data_out           (data_o_2),
+    .buffer1_addr        (buffer1_addr)
 );
 //第二层后处理：偏置、重量化、ReLU
-wire    signed  [31:0]  quantBuffer2    [31:0];
+wire    signed  [31:0]  quantBuffer2    [3:0];
 generate
-    for(i=0;i<32;i = i+1)begin:temp_2
-        assign after_bias_2[32*i+31:32*i] = $signed(data_o_2[32*i+31:32*i]) + $signed(bias_2[16*i+15:16*i]);
+    for(i=0;i<4;i = i+1)begin:temp_2
+        assign after_bias_2[32*i+31:32*i] = $signed(data_o_2[32*i+31:32*i]) + $signed(sa2_bias[16*i+15:16*i]);
         FF_32    qb2(.clk(clk),.rst_n(rst_n),.data_in(after_bias_2[32*i+31:32*i]),.data_out(quantBuffer2[i]));
         rescale_dwconv   quant_2(
             .clk                (clk),
@@ -235,7 +256,7 @@ generate
 endgenerate
     
 //数据进入第二缓存层
-wire    signed  [255:0]     buffer2_out;
+wire    signed  [31:0]     buffer2_out;
 BUFFER_2        buffer2(
     .clk                (clk),
     .rst_n              (rst_n),
@@ -245,25 +266,25 @@ BUFFER_2        buffer2(
 
 //SA3第三层卷积
 wire    signed  [8191:0]        weight_3;//32通道 * (32*8) 
-wire    signed  [1023:0]        data_o_3;//32通道 * 32bit
+wire    signed  [4*32-1:0]        data_o_3;//4通道 * 32bit
 wire    signed  [32*16-1:0]     bias_3;
 wire    signed  [32*32-1:0]     after_bias_3;
 wire    signed  [32*8-1:0]      after_quant_3;
-wire    signed  [32*8-1:0]      after_relu_3;
+wire    signed  [32*2*8-1:0]      after_relu_3;
 
 //测试线
-wire    signed  [7:0]           sa3In_C0;
-wire    signed  [7:0]           sa3In_C1;
-assign  sa3In_C0    =   buffer2_out[7:0]; 
-assign  sa3In_C1    =   buffer2_out[15:8];     
-wire    signed  [31:0]          data_o3_channel0;
-wire    signed  [31:0]          after_bias3_channel0;
-wire    signed  [7:0]           after_quant3_channel0;
-wire    signed  [7:0]           output_3;
-assign output_3 = after_relu_3[7:0];
-assign data_o3_channel0 = data_o_3[31:0];
-assign after_bias3_channel0 = after_bias_3[31:0];
-assign after_quant3_channel0 = after_quant_3[7:0];
+// wire    signed  [7:0]           sa3In_C0;
+// wire    signed  [7:0]           sa3In_C1;
+// assign  sa3In_C0    =   buffer2_out[7:0]; 
+// assign  sa3In_C1    =   buffer2_out[15:8];     
+// wire    signed  [31:0]          data_o3_channel0;
+// wire    signed  [31:0]          after_bias3_channel0;
+// wire    signed  [7:0]           after_quant3_channel0;
+// wire    signed  [7:0]           output_3;
+// assign output_3 = after_relu_3[7:0];
+// assign data_o3_channel0 = data_o_3[31:0];
+// assign after_bias3_channel0 = after_bias_3[31:0];
+// assign after_quant3_channel0 = after_quant_3[7:0];
 
 //第三层卷积的权重和偏置
 assign bias_3={
@@ -271,12 +292,46 @@ assign bias_3={
 assign  weight_3={
 8'd5, 8'd3, -8'd50, 8'd9, 8'd15, 8'd33, -8'd2, -8'd47, 8'd55, 8'd42, 8'd18, 8'd56, -8'd19, -8'd58, -8'd23, -8'd20, 8'd11, -8'd50, -8'd39, -8'd18, 8'd42, 8'd22, 8'd29, 8'd45, 8'd12, 8'd19, 8'd54, 8'd13, -8'd9, 8'd3, -8'd39, 8'd4, -8'd4, 8'd69, -8'd45, -8'd25, 8'd3, 8'd42, -8'd82, 8'd32, 8'd25, -8'd63, -8'd3, -8'd26, -8'd32, 8'd35, 8'd13, 8'd52, 8'd27, -8'd56, 8'd21, 8'd23, 8'd45, 8'd23, 8'd41, 8'd32, 8'd51, -8'd80, -8'd24, -8'd36, 8'd38, 8'd57, -8'd39, -8'd39, 8'd49, 8'd2, -8'd62, -8'd34, 8'd45, 8'd9, 8'd65, -8'd10, 8'd10, 8'd42, 8'd45, 8'd12, -8'd33, -8'd24, 8'd15, 8'd57, 8'd55, -8'd12, -8'd16, -8'd23, 8'd39, 8'd17, -8'd55, 8'd86, -8'd46, -8'd13, -8'd52, 8'd40, 8'd1, 8'd38, 8'd21, -8'd66, 8'd37, 8'd90, -8'd77, 8'd60, 8'd92, -8'd12, -8'd40, -8'd28, 8'd29, -8'd3, 8'd53, -8'd10, -8'd17, 8'd16, -8'd99, 8'd16, 8'd14, 8'd96, -8'd1, -8'd78, 8'd39, -8'd15, -8'd25, -8'd44, -8'd56, 8'd81, 8'd85, 8'd8, 8'd73, -8'd82, -8'd35, 8'd27, -8'd5, 8'd24, -8'd15, -8'd33, -8'd42, 8'd63, -8'd20, -8'd31, -8'd4, 8'd47, -8'd53, -8'd52, 8'd11, 8'd60, 8'd58, 8'd20, 8'd15, -8'd20, 8'd12, 8'd18, -8'd3, 8'd51, -8'd19, -8'd69, 8'd69, -8'd87, 8'd38, 8'd24, 8'd26, -8'd12, -8'd31, -8'd7, 8'd5, -8'd74, 8'd59, -8'd6, -8'd10, 8'd18, -8'd50, 8'd38, -8'd42, -8'd71, 8'd32, 8'd42, 8'd58, 8'd29, -8'd12, 8'd55, -8'd74, -8'd23, 8'd76, 8'd34, -8'd15, 8'd41, 8'd69, -8'd20, -8'd53, -8'd57, 8'd3, 8'd43, 8'd53, -8'd32, -8'd24, -8'd14, -8'd4, 8'd40, 8'd86, -8'd15, 8'd78, 8'd84, 8'd56, 8'd39, 8'd11, 8'd65, 8'd76, -8'd42, 8'd62, -8'd23, -8'd55, -8'd94, -8'd104, -8'd51, 8'd19, 8'd55, -8'd11, -8'd95, -8'd31, -8'd15, 8'd37, 8'd74, -8'd40, 8'd9, 8'd37, -8'd29, -8'd55, -8'd49, 8'd62, 8'd11, -8'd22, -8'd19, 8'd1, -8'd0, 8'd9, 8'd26, 8'd24, -8'd17, -8'd14, -8'd69, 8'd17, 8'd50, 8'd11, 8'd20, 8'd60, 8'd32, 8'd53, 8'd19, -8'd16, 8'd59, -8'd20, -8'd38, -8'd19, -8'd35, -8'd66, 8'd36, -8'd83, 8'd12, 8'd41, -8'd30, 8'd35, -8'd46, -8'd47, 8'd14, -8'd6, 8'd53, 8'd37, -8'd46, 8'd19, -8'd41, 8'd53, -8'd24, -8'd42, 8'd16, -8'd46, -8'd13, -8'd20, -8'd4, 8'd38, 8'd30, 8'd1, 8'd18, 8'd40, -8'd35, 8'd47, -8'd15, 8'd27, 8'd52, -8'd26, 8'd14, -8'd45, 8'd38, 8'd7, -8'd19, 8'd10, 8'd17, -8'd10, 8'd30, 8'd15, 8'd4, -8'd19, -8'd2, -8'd29, 8'd27, 8'd23, -8'd26, -8'd43, -8'd29, -8'd32, 8'd24, 8'd28, -8'd24, 8'd9, 8'd11, -8'd25, 8'd35, 8'd36, -8'd19, 8'd38, 8'd18, 8'd9, 8'd27, 8'd36, -8'd31, 8'd52, 8'd55, 8'd21, 8'd42, -8'd8, -8'd31, 8'd34, -8'd47, -8'd26, 8'd52, 8'd17, -8'd43, -8'd27, 8'd53, 8'd35, 8'd17, 8'd6, 8'd31, -8'd32, 8'd57, 8'd7, -8'd28, 8'd30, 8'd58, -8'd15, 8'd14, -8'd28, 8'd45, 8'd21, 8'd15, -8'd48, 8'd15, -8'd54, 8'd62, 8'd32, -8'd23, -8'd50, 8'd34, 8'd7, -8'd43, 8'd56, -8'd21, 8'd7, 8'd41, 8'd20, -8'd16, -8'd56, 8'd44, 8'd49, -8'd33, -8'd54, -8'd29, -8'd32, -8'd36, -8'd7, 8'd8, 8'd31, -8'd53, 8'd41, -8'd21, -8'd48, 8'd17, 8'd26, -8'd40, 8'd38, 8'd43, 8'd35, 8'd53, -8'd16, 8'd44, 8'd57, 8'd31, 8'd25, 8'd8, 8'd15, -8'd33, 8'd15, -8'd22, -8'd35, 8'd61, -8'd72, -8'd58, 8'd14, 8'd21, 8'd7, 8'd66, -8'd33, -8'd13, -8'd74, 8'd1, -8'd66, 8'd54, 8'd43, -8'd20, 8'd49, 8'd67, -8'd40, 8'd1, 8'd34, 8'd40, -8'd20, 8'd1, -8'd25, 8'd47, 8'd7, 8'd7, 8'd45, -8'd8, -8'd12, -8'd6, 8'd5, -8'd13, -8'd10, -8'd5, 8'd46, -8'd35, 8'd48, -8'd38, -8'd44, -8'd33, 8'd36, 8'd20, 8'd44, 8'd2, 8'd27, -8'd19, -8'd1, 8'd31, 8'd53, -8'd44, -8'd10, 8'd21, -8'd67, -8'd64, -8'd66, 8'd58, -8'd0, 8'd72, 8'd29, -8'd67, 8'd5, 8'd66, 8'd29, -8'd60, 8'd27, 8'd54, -8'd80, 8'd20, 8'd9, 8'd35, -8'd69, 8'd21, -8'd49, -8'd73, -8'd30, -8'd5, 8'd67, 8'd16, 8'd34, -8'd53, -8'd42, 8'd9, 8'd43, 8'd32, 8'd22, 8'd27, -8'd32, -8'd6, -8'd30, 8'd38, -8'd38, 8'd35, 8'd25, 8'd46, 8'd18, -8'd35, -8'd52, -8'd29, 8'd4, -8'd17, 8'd24, -8'd5, -8'd8, -8'd15, -8'd26, -8'd42, 8'd38, 8'd42, 8'd11, -8'd43, 8'd5, -8'd52, 8'd68, -8'd45, -8'd30, 8'd69, -8'd64, 8'd25, -8'd18, 8'd25, 8'd65, -8'd72, 8'd15, -8'd76, 8'd35, -8'd8, -8'd37, -8'd40, 8'd35, 8'd31, -8'd15, 8'd34, -8'd16, 8'd77, 8'd38, -8'd74, -8'd55, 8'd47, 8'd71, 8'd45, 8'd64, 8'd19, 8'd6, -8'd71, 8'd32, -8'd1, 8'd5, 8'd13, 8'd19, 8'd41, 8'd31, -8'd10, 8'd28, -8'd49, -8'd16, -8'd56, 8'd8, 8'd24, 8'd34, 8'd15, -8'd8, -8'd11, 8'd4, 8'd24, 8'd2, 8'd2, -8'd14, -8'd35, 8'd39, -8'd44, 8'd50, -8'd35, -8'd7, -8'd48, 8'd18, -8'd5, -8'd16, 8'd48, 8'd12, -8'd54, 8'd20, -8'd29, -8'd40, -8'd23, 8'd55, 8'd8, 8'd53, 8'd20, 8'd5, 8'd51, 8'd42, 8'd56, 8'd27, 8'd49, -8'd19, -8'd15, -8'd50, -8'd46, 8'd6, 8'd7, -8'd34, 8'd9, -8'd35, 8'd25, 8'd29, 8'd6, -8'd44, -8'd33, -8'd41, -8'd48, 8'd15, -8'd31, -8'd45, 8'd30, 8'd29, -8'd21, -8'd30, 8'd5, -8'd24, -8'd66, -8'd66, 8'd9, 8'd39, 8'd109, 8'd26, -8'd69, -8'd27, 8'd1, -8'd35, 8'd1, 8'd47, -8'd25, 8'd19, 8'd87, -8'd23, 8'd20, 8'd83, 8'd87, -8'd14, 8'd38, 8'd56, 8'd23, -8'd20, -8'd7, 8'd51, 8'd47, -8'd29, 8'd33, -8'd10, -8'd7, -8'd29, -8'd18, -8'd53, 8'd31, 8'd37, -8'd60, 8'd22, -8'd12, 8'd52, -8'd16, 8'd19, 8'd70, -8'd46, -8'd17, 8'd12, -8'd64, 8'd55, -8'd18, 8'd36, 8'd72, -8'd50, 8'd30, 8'd59, -8'd28, 8'd30, -8'd51, -8'd44, 8'd52, 8'd38, 8'd41, -8'd34, -8'd9, 8'd31, -8'd63, 8'd47, -8'd44, -8'd1, -8'd34, 8'd54, -8'd1, -8'd56, 8'd42, -8'd14, -8'd37, 8'd50, 8'd7, -8'd46, 8'd10, 8'd63, -8'd52, -8'd54, 8'd59, -8'd54, -8'd43, -8'd44, 8'd30, -8'd21, -8'd4, -8'd22, 8'd49, -8'd44, 8'd45, -8'd3, -8'd55, -8'd21, -8'd50, -8'd8, 8'd39, 8'd34, 8'd23, 8'd40, 8'd21, -8'd28, 8'd54, -8'd13, 8'd48, -8'd60, -8'd32, 8'd34, -8'd3, 8'd7, 8'd8, -8'd11, 8'd26, -8'd4, 8'd24, 8'd68, -8'd15, -8'd13, 8'd33, -8'd85, 8'd41, 8'd51, 8'd52, -8'd38, 8'd17, -8'd14, -8'd80, 8'd93, -8'd41, -8'd31, -8'd30, -8'd29, 8'd59, -8'd6, 8'd78, -8'd5, 8'd25, -8'd40, -8'd43, -8'd85, 8'd57, 8'd56, 8'd37, 8'd34, -8'd57, 8'd60, -8'd23, -8'd15, -8'd40, 8'd16, 8'd31, -8'd79, 8'd92, 8'd69, 8'd21, -8'd32, 8'd43, 8'd60, 8'd2, 8'd56, -8'd22, -8'd29, -8'd80, 8'd79, 8'd34, -8'd6, 8'd54, -8'd94, 8'd16, 8'd27, -8'd19, -8'd59, -8'd16, 8'd27, -8'd31, -8'd70, 8'd55, -8'd59, -8'd10, -8'd57, -8'd17, 8'd1, -8'd40, 8'd53, 8'd35, -8'd59, 8'd50, -8'd70, 8'd67, -8'd4, -8'd8, 8'd22, -8'd14, -8'd49, -8'd8, 8'd24, -8'd53, 8'd18, 8'd49, 8'd43, 8'd44, 8'd36, -8'd9, 8'd23, -8'd58, -8'd57, -8'd34, -8'd41, -8'd70, -8'd9, -8'd58, -8'd61, 8'd87, 8'd43, -8'd41, 8'd46, -8'd9, 8'd35, 8'd41, -8'd55, 8'd33, 8'd9, 8'd72, 8'd91, -8'd27, -8'd89, 8'd34, -8'd51, -8'd35, -8'd58, 8'd54, -8'd62, 8'd22, 8'd71, -8'd60, -8'd40, -8'd21, 8'd65, -8'd3, 8'd94, -8'd66, 8'd77, -8'd68, -8'd10, 8'd54, -8'd59, 8'd30, -8'd44, -8'd29, -8'd44, 8'd19, -8'd37, -8'd49, 8'd49, -8'd43, -8'd19, 8'd29, 8'd23, -8'd52, 8'd19, -8'd28, -8'd27, -8'd23, -8'd36, -8'd37, 8'd42, -8'd24, -8'd20, 8'd44, -8'd22, 8'd14, 8'd1, 8'd15, 8'd17, 8'd40, 8'd88, 8'd46, -8'd51, 8'd41, -8'd63, -8'd46, -8'd32, 8'd1, 8'd64, -8'd59, 8'd74, 8'd12, -8'd84, 8'd42, 8'd18, 8'd32, -8'd5, 8'd66, -8'd61, -8'd38, -8'd85, 8'd61, -8'd41, 8'd31, -8'd28, 8'd3, 8'd83, -8'd8, 8'd108, 8'd48, -8'd101, 8'd127, -8'd23, -8'd76, 8'd34, 8'd26, -8'd118, -8'd39, -8'd77, 8'd19, -8'd18, -8'd33, 8'd1, -8'd19, 8'd91, -8'd44, -8'd28, 8'd95, -8'd56, -8'd28, 8'd55, 8'd46, -8'd74, 8'd54, 8'd9, -8'd37, 8'd3, 8'd84, -8'd5, -8'd20, 8'd120, 8'd80, -8'd63, 8'd99, 8'd4, 8'd14, -8'd14, 8'd8, 8'd24, -8'd45, -8'd53, 8'd28, -8'd64, -8'd31, 8'd51, -8'd51, -8'd46, 8'd23, 8'd31, -8'd52, 8'd45, -8'd16, -8'd35, 8'd22, 8'd14, -8'd29, 8'd18, 8'd53, 8'd39, -8'd48, -8'd54, -8'd54, -8'd46, 8'd71, 8'd57, 8'd18, -8'd40, -8'd39, -8'd27, 8'd51, 8'd47, -8'd10, 8'd23, -8'd40, 8'd13, 8'd30, 8'd47, 8'd18, -8'd20, -8'd39, 8'd48, 8'd40, -8'd29, -8'd16, 8'd30, 8'd32, 8'd6, -8'd18, 8'd40, 8'd17, -8'd10, 8'd45, 8'd19, -8'd32, 8'd45, 8'd44, 8'd36, -8'd28
 };
+// 对weight_3的切片 32*1*1*4*8bit
+wire [32*4*8-1:0] sa3_weight_in;
+generate
+    for(i=0;i<32;i = i+1)begin:temp_3_weight
+        assign sa3_weight_in[(4*8)*(i+1)-1:(4*8)*i] = weight_3[i*32*8+(4*8)*(counter+1)-1:(4*8)*counter+i*32*8];
+    end
+endgenerate
+reg [2:0] group_cnt;
+reg [5:0] spatial_cnt;  // 如果是 18*2，就用 6 位更稳妥
+wire            sa3_acc_valid;
+wire    [4:0]   sa3_acc_addr;
+// assign sa3_acc_valid = (cnt >= 8'd107 && cnt <= 8'd124);
+assign sa3_acc_valid = enable;
+// assign sa3_acc_addr  = cnt - 8'd107;
+assign sa3_acc_addr  = spatial_cnt[4:0];  // 若只有 18 个地址可用 5 位；18*2 建议改成 6 位
+always @(posedge clk or negedge rst_n) begin
+    if(!rst_n) begin
+        group_cnt   <= 3'd0;
+        spatial_cnt <= 6'd0;
+    end else if(enable) begin
+        if(spatial_cnt == 6'd35) begin
+            spatial_cnt <= 6'd0;
+            if(group_cnt == 3'd7)
+                group_cnt <= 3'd0;
+            else
+                group_cnt <= group_cnt + 1'b1;
+        end else begin
+            spatial_cnt <= spatial_cnt + 1'b1;
+        end
+    end
+end
 //实例化SA3
 SA_3     sa3(
     .clk                (clk),
     .rst_n              (rst_n),
     .data_in            (buffer2_out),
-    .weight             (weight_3),
+    .weight             (sa3_weight_in),
+    .counter            (counter),
+    .acc_addr           (sa3_acc_addr),
+    .acc_valid          (sa3_acc_valid),
     .data_out           (data_o_3)
 );
 //第三层后处理：偏置、重量化、ReLU
@@ -353,8 +408,12 @@ always @(negedge clk or negedge rst_n)begin
 end
 
 //最大池化
+// 输入32通道 18*2*8bit，输出32通道 9*1*8bit
+// 先输入 完一个通道的全部数据（18*2=36个数据），再切换到下一个通道
+// 速度 每个cycle输入一个2*8bit数据
+// 读取的数据假设从 after_relu_3 来
 reg                         enable_poolmax;
-wire  signed  [7:0]         poolmax_out[31:0];
+wire  signed  [7:0]         poolmax_out [31:0];
 
 generate
     for(i=0;i<32;i = i+1)begin:temp_4
@@ -362,8 +421,7 @@ generate
             .clk                (clk),
             .rst_n              (rst_n),
             .enable             (enable_poolmax),
-            .data_in            (after_relu_3[i*8+7:i*8]),//当前列数据
-            .buffer_3           (buffer3_out[i*8+7:i*8]), //上一列数据
+            .data_in            (after_relu_3[i*2*8+16-1:i*2*8]),
             .data_max           (poolmax_out[i])
         );
     end
@@ -467,4 +525,3 @@ FF_32    outBuffer2(
 );
 
 endmodule
-

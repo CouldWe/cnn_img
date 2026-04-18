@@ -4,7 +4,8 @@ module SA_channel_2(
     input   wire                    rst_n,
     input   wire  signed  [23:0]    data_in,//3*8bit输入数据
     input   wire  signed  [71:0]    weight,//9*8bit权重
-    output  wire signed   [31:0]    data_out
+    output  wire signed   [31:0]    data_out,//32bit输出
+    input   wire                    m_control_sa2//0 下滑 1 上滑
 );
    
 genvar i,j;
@@ -15,26 +16,29 @@ wire signed [32*4 - 1:0]    partial_sum_temp;
 generate
 for(i = 0;i < 3;i = i + 1)begin:row_loop
     for(j = 0;j < 3;j = j + 1)begin:col_loop
-        if(i == 2)begin//最后一行 PE输入数据直接来自data_in
-            PE  array_pe(
-                .clk            (clk),
-                .rst_n          (rst_n),
-                .weight         (weight[(i*3+j)*8 + 7:(i*3+j)*8]),
-                .data_in        (data_in[j*8 + 7:j*8]),
-                .data_out       (data_temp[(i*3+j)*8+7:(i*3+j)*8]),
-                .temp_product   (partial_product_temp[(i*3+j)*32+31:(i*3+j)*32])  
-            );
-        end
-        else begin
-            PE  array_pe(
-                .clk            (clk),
-                .rst_n          (rst_n),
-                .weight         (weight[(i*3+j)*8 + 7:(i*3+j)*8]),
-                .data_in        (data_temp[(i*3+j+3)*8+7:(i*3+j+3)*8]),
-                .data_out       (data_temp[(i*3+j)*8+7:(i*3+j)*8]),
-                .temp_product   (partial_product_temp[(i*3+j)*32+31:(i*3+j)*32])  
-            );
-        end
+        wire signed [7:0] selected_data_in;
+        assign selected_data_in = 
+        (m_control_sa2 == 0) ? //下滑
+        (
+            (i == 2) ? //最后一行 PE输入数据直接来自data_in
+            (data_in[j*8 + 7:j*8])
+            :
+            (data_temp[(i*3+j+3)*8+7:(i*3+j+3)*8])
+        )://上滑
+        (
+             (i == 0) ? //第一行 PE输入数据直接来自data_in
+            (data_in[j*8 + 7:j*8])
+            :
+            (data_temp[(i*3+j-3)*8+7:(i*3+j-3)*8])
+        );
+        PE array_pe (
+            .clk           (clk),
+            .rst_n         (rst_n),
+            .weight        (weight[(i*3+j)*8 +: 8]),
+            .data_in       (selected_data_in),
+            .data_out      (data_temp[(i*3+j)*8 +: 8]),
+            .temp_product  (partial_product_temp[(i*3+j)*32 +: 32])
+        );
     end
 end
 endgenerate
