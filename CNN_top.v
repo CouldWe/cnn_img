@@ -66,32 +66,6 @@ wire    signed  [32*16-1:0]     bias_1;//32通道偏置，每个16bit
 wire    signed  [4*32-1:0]     after_bias_1;
 wire    signed  [4*8-1:0]      after_quant_1;
 wire    signed  [4*8-1:0]      after_relu_1;
-
-//为了调试方便，引出通道0和通道1的一些中间信号
-// wire    signed  [31:0]          data_o_channel0;
-// wire    signed  [31:0]          after_bias_channel0;
-// wire    signed  [7:0]           after_quant_channel0;
-// wire    signed  [7:0]           output_1;
-// wire    signed  [15:0]          bias1_channel0;
-
-// wire    signed  [31:0]          data_o_channel1;
-// wire    signed  [31:0]          after_bias_channel1;
-// wire    signed  [7:0]           after_quant_channel1;
-// wire    signed  [7:0]           output_2;
-// wire    signed  [15:0]          bias1_channel1;
-
-// assign output_1 = after_relu_1[7:0];
-// assign data_o_channel0 = data_o_1[31:0];
-// assign after_bias_channel0 = after_bias_1[31:0];
-// assign after_quant_channel0 = after_quant_1[7:0];
-// assign bias1_channel0   =   bias_1[15:0];
-
-// assign output_2 = after_relu_1[15:8];
-// assign data_o_channel1 = data_o_1[63:32];
-// assign after_bias_channel1 = after_bias_1[63:32];
-// assign after_quant_channel1 = after_quant_1[15:8];
-// assign bias1_channel1   =   bias_1[31:16];
-
 //第一层卷积的权重和偏置
 assign bias_1={
 16'd5904,16'd4582,-16'd893,16'd807,16'd2672,-16'd6028,-16'd3779,16'd4636,
