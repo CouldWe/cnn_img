@@ -19,17 +19,6 @@ reg  [4:0]      A1,A2,A3,A4;
 reg  [4*8-1:0]    data_in_buffer;//输入数据寄存器
 reg     [6:0]   cnt;//内部计数器，用于控制写入时序
 
-//测试线
-wire [7:0] testpoint1;
-wire [7:0] testpoint2;
-wire [7:0] testpoint3;
-wire [7:0] testpoint4;
-assign testpoint1 = data_out[7:0];
-assign testpoint2 = data_out[15:8];
-assign testpoint3 = data_out[256+7:256];
-assign testpoint4 = data_out[512+7:512];
-
-
 //在下降沿寄存data_in
 always@(negedge clk or negedge rst_n) begin
   if(!rst_n)

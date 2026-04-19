@@ -334,11 +334,21 @@ SA_3     sa3(
     .acc_valid          (sa3_acc_valid),
     .data_out           (data_o_3)
 );
+wire signed [32*32*2-1:0] buffer3_out;
+sramBuffer3     sramBuffer3_inst(
+    .clk                (clk),
+    .rst_n              (rst_n),
+    .raddr               (raddr3),
+    .counter            (counter),
+    .enable              (enable3),
+    .data_in            (data_o_3),
+    .data_out           (buffer3_out)
+);
 //第三层后处理：偏置、重量化、ReLU
 wire    signed  [31:0]  quantBuffer3    [31:0];
 generate
     for(i=0;i<32;i = i+1)begin:temp_3
-        assign after_bias_3[32*i+31:32*i] = $signed(data_o_3[32*i+31:32*i]) + $signed(bias_3[16*i+15:16*i]);
+        assign after_bias_3[32*i+31:32*i] = $signed(buffer3_out[32*i+31:32*i]) + $signed(bias_3[16*i+15:16*i]);
         FF_32    qb3(.clk(clk),.rst_n(rst_n),.data_in(after_bias_3[32*i+31:32*i]),.data_out(quantBuffer3[i]));
         rescale_pwconv   quant_3(
             .clk                (clk),
@@ -352,60 +362,6 @@ generate
         );
     end
 endgenerate
-
-//数据进入第三缓存层
-//用于存储SA3的第一列结果，以便与第二列进行最大池化
-reg                         enable_buffer3;//SRAM片选，低有效
-wire    signed  [255:0]     buffer3_out;
-reg     [4:0]               buffer3_addr;
-reg                         buffer3_wen;
-reg     [255:0]             buffer3_in;
-
-SRAM_32_256        buffer3(
-    .CLK                (clk),
-    .A                  (buffer3_addr),
-    .CEN                (enable_buffer3),
-    .D                  (buffer3_in),
-    .Q                  (buffer3_out),
-    .WEN                (buffer3_wen)
-);
-//buffer3输入直接来自after_relu_3，
-always @(negedge clk or negedge rst_n)begin
-    if(!rst_n)
-        buffer3_in <= 256'b0;
-    else
-        buffer3_in <= after_relu_3;
-end
-
-//片选控制
-always @(negedge clk or negedge rst_n)begin
-    if(!rst_n)
-        enable_buffer3 <= 1'b1;
-    else if(cnt >= 107 && cnt <= 124 || cnt >= 126 && cnt <= 143)
-        enable_buffer3 <= 1'b0;
-    else
-        enable_buffer3 <= 1'b1;
-end
-//写使能
-always @(negedge clk or negedge rst_n)begin
-    if(!rst_n)
-        buffer3_wen <= 1'b1;
-    else if(cnt >= 107 && cnt <= 124)
-        buffer3_wen <= 1'b0;
-    else
-        buffer3_wen <= 1'b1;
-end
-//地址生成
-always @(negedge clk or negedge rst_n)begin
-    if(!rst_n)
-        buffer3_addr <= 5'b0;
-    else if(cnt >= 107 && cnt <= 124)
-        buffer3_addr <= cnt - 107;//写地址 0~17
-    else if(cnt >= 126 && cnt <= 143)
-        buffer3_addr <= cnt - 126;//读地址 0~17
-    else
-        buffer3_addr <= 5'b0;
-end
 
 //最大池化
 // 输入32通道 18*2*8bit，输出32通道 9*1*8bit
@@ -456,7 +412,7 @@ FC              fc(
     .clk                (clk),
     .rst_n              (rst_n),
     .enable             (enable_fc),
-    .data_in            ({poolmax_out[31],poolmax_out[30],poolmax_out[29],poolmax_out[28],poolmax_out[27],poolmax_out[26],poolmax_out[25],poolmax_out[24],poolmax_out[23],poolmax_out[22],poolmax_out[21],poolmax_out[20],poolmax_out[19],poolmax_out[18],poolmax_out[17],poolmax_out[16],poolmax_out[15],poolmax_out[14],poolmax_out[13],poolmax_out[12],poolmax_out[11],poolmax_out[10],poolmax_out[9],poolmax_out[8],poolmax_out[7],poolmax_out[6],poolmax_out[5],poolmax_out[4],poolmax_out[3],poolmax_out[2],poolmax_out[1],poolmax_out[0]}),
+    .data_in            (poolmax_out),
     .weight             (weight_fc),
     .data_out           (after_fc)
 );
