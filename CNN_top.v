@@ -275,12 +275,12 @@ generate
 endgenerate
 reg [2:0] group_cnt;
 reg [5:0] spatial_cnt;  // 如果是 18*2，就用 6 位更稳妥
-wire            sa3_acc_valid;
-wire    [4:0]   sa3_acc_addr;
+// wire            sa3_acc_valid;
+// wire    [4:0]   sa3_acc_addr;
 // assign sa3_acc_valid = (cnt >= 8'd107 && cnt <= 8'd124);
-assign sa3_acc_valid = enable;
+// assign sa3_acc_valid = enable;
 // assign sa3_acc_addr  = cnt - 8'd107;
-assign sa3_acc_addr  = spatial_cnt[4:0];  // 若只有 18 个地址可用 5 位；18*2 建议改成 6 位
+// assign sa3_acc_addr  = spatial_cnt[4:0];  // 若只有 18 个地址可用 5 位；18*2 建议改成 6 位
 always @(posedge clk or negedge rst_n) begin
     if(!rst_n) begin
         group_cnt   <= 3'd0;
@@ -304,8 +304,8 @@ SA_3     sa3(
     .data_in            (buffer2_out),
     .weight             (sa3_weight_in),
     .counter            (counter),
-    .acc_addr           (sa3_acc_addr),
-    .acc_valid          (sa3_acc_valid),
+    // .acc_addr           (sa3_acc_addr),
+    // .acc_valid          (sa3_acc_valid),
     .data_out           (data_o_3)
 );
 wire signed [32*32*2-1:0] buffer3_out;

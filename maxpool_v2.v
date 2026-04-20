@@ -3,7 +3,7 @@ module maxpool_v2(
     input wire clk,
     input wire enable,
     input wire rst_n,
-    input wire [15:0] data_in, 
+    input wire [15:0] data_in, //一次传2个8bit数据
     output reg [7:0] data_max
 );
 reg             cnt;//两周期计数器，0或1

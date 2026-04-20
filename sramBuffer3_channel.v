@@ -127,7 +127,7 @@ assign data_out = {q1, q2};
 // --- 实例化 SRAM 模块 (示例) ---
 // 假设 SRAM 为单时钟同步读写，且 temp_out 接入 data_in_sram
 
-sram_32x18 u_sram1 (
+sram_32x32 u_sram1 (
     .clk  (clk),
     .cen  (CEN1),
     .wen  (WEN1),
@@ -136,7 +136,7 @@ sram_32x18 u_sram1 (
     .q    (q1)
 );
 
-sram_32x18 u_sram2 (
+sram_32x32 u_sram2 (
     .clk  (clk),
     .cen  (CEN2),
     .wen  (WEN2),

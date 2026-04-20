@@ -196,7 +196,7 @@ assign data_out =
 96'b0);
 
 //实例化两个32位宽、20深度的SRAM，两个32位宽、10深度的SRAM
-SRAM_32_20     ARRAY1(
+SRAM_32_32     ARRAY1(
   .Q                (Q1),
   .CLK              (clk),
   .CEN              (CEN1),
@@ -205,7 +205,7 @@ SRAM_32_20     ARRAY1(
   .D                (data_in_buffer)
 );
 
-SRAM_32_20     ARRAY2(
+SRAM_32_32     ARRAY2(
   .Q                (Q2),
   .CLK              (clk),
   .CEN              (CEN2),
@@ -214,7 +214,7 @@ SRAM_32_20     ARRAY2(
   .D                (data_in_buffer)
 );
 
-SRAM_32_10     ARRAY3(
+SRAM_32_32     ARRAY3(
   .Q                (Q3),
   .CLK              (clk),
   .CEN              (CEN3),
@@ -223,7 +223,7 @@ SRAM_32_10     ARRAY3(
   .D                (data_in_buffer)
 );
 
-SRAM_32_10     ARRAY4(
+SRAM_32_32     ARRAY4(
   .Q                (Q4),
   .CLK              (clk),
   .CEN              (CEN4),
