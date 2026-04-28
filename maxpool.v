@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-module maxpool_v2(
+module maxpool(
     input wire clk,
     input wire enable,
     input wire rst_n,
@@ -17,13 +17,18 @@ always @(posedge clk or negedge  rst_n)begin
         cnt <= cnt;
 end
 //第二拍（cnt=1）：将上一拍的temp_max与当前的两个输入比较，取最大值输出
+reg [7:0] max_result; //暂存4个数据的最大值
 always @(posedge clk or negedge  rst_n)begin
     if(!rst_n)
         data_max <= 8'b0;
-    else if (enable == 1 && cnt == 1)
-        data_max <= 
+    else if (enable == 1 && cnt == 1) begin
+        // 先计算4个数据的最大值
+        max_result =
         ($signed(temp_max) > $signed(data_in[15:8]) && $signed(temp_max) > $signed(data_in[7:0]))?temp_max:
         ($signed(data_in[15:8]) > $signed(data_in[7:0]))?data_in[15:8]:data_in[7:0];
+        // 如果最大值是负数，则输出0；否则输出最大值
+        data_max <= ($signed(max_result) < 0) ? 8'd0 : max_result;
+    end
     else
         data_max <= data_max;
 end

@@ -347,7 +347,7 @@ wire  signed  [7:0]         poolmax_out [31:0];
 
 generate
     for(i=0;i<32;i = i+1)begin:temp_4
-        maxpool_v2         max(
+        maxpool         max(
             .clk                (clk),
             .rst_n              (rst_n),
             .enable             (enable_poolmax),
