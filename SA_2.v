@@ -28,8 +28,8 @@ generate
             .clk            (clk),
             .rst_n          (rst_n),
             .data_in        ({data_in[8*k+7+64:8*k+64],data_in[8*k+7+32:8*k+32],data_in[8*k+7:8*k]}),
-            .data_out       (data_out[32*k + 31:32*k]),
-            .weight         (weight[3*3*8*k + 71:3*3*8*k]),
+            .data_out       (data_out[32*k +: 32]),
+            .weight         (weight[3*3*8*k +: 72]),
             .m_control_sa2   (m_control_sa2)
         );
     end

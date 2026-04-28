@@ -8,6 +8,7 @@ module sramBuffer3(
   input       wire    [2:0]                   counter,
   output      wire    [32*32*2-1:0]             data_out//输出数据，32通道32bit,两个sram同时输出
 );
+genvar k;
 generate
     for(k = 0;k < 32;k = k + 1)begin:array_loop
         sramBuffer3_channel    channel(
@@ -15,7 +16,7 @@ generate
             .clk        (clk),
             .rst_n      (rst_n),
             .enable     (enable),
-            .radddr     (raddr),
+            .raddr      (raddr),
             .counter    (counter),
             .data_out   (data_out[64*k + 63:64*k])
         );

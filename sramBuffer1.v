@@ -8,7 +8,20 @@ module sramBuffer1(
   input       wire    [2:0]                   counter,
   output      wire    [4*3*8-1:0]             data_out//输出数据，4通道×3*8bit
 );
+// 结构
+// 4个32位宽的SRAM (ARRAY1-4)
+// ARRAY1/2: 深度20 (地址0-19)
+// ARRAY3/4: 深度10 (地址0-9)
 
+// 写入
+// cnt 0-19: 写入ARRAY1
+// cnt 20-39: 写入ARRAY2（地址倒序）
+// cnt 40-58 (偶数): 写入ARRAY3
+// cnt 41-59 (奇数): 写入ARRAY4
+
+// 读取
+// raddr 0-19: 从ARRAY1/3或ARRAY1/4读取
+// raddr 20-39: 从ARRAY2/3/4和移位寄存器读取
 parameter cnt_max = 8'd153;//计数器最大值，根据需要调整
 wire [4*8-1:0]    Q1,Q2,Q3,Q4;//四个SRAM的读数据输出
 wire            cen_temp1,cen_temp2,cen_temp3,cen_temp4;

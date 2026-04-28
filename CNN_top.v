@@ -222,10 +222,10 @@ generate
             .data_in            (quantBuffer2[i]),
             .data_out           (after_quant_2[8*i+7:8*i])
         );
-        Relu    activate_2(
-            .data_in        (after_quant_2[8*i+7:8*i]),
-            .data_out       (after_relu_2[8*i+7:8*i])
-        );
+        // Relu    activate_2(
+        //     .data_in        (after_quant_2[8*i+7:8*i]),
+        //     .data_out       (after_relu_2[8*i+7:8*i])
+        // );
     end
 endgenerate
     

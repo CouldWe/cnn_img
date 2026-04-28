@@ -4,7 +4,7 @@ module sramBuffer3_channel(
   input wire clk,
   input wire rst_n,
   input wire enable,
-  input wire [5:0] radddr,
+  input wire [5:0] raddr,
   input wire [2:0] counter,//用于记录当前为第几个通道，输入图（18行2列）呈S型输入，counter为偶数时由左上到右上，counter为奇数时由右上到左上
   output wire [2*32-1:0] data_out //2*32bit 输出，包含SRAM1和SRAM2的输出数据
   );
@@ -113,13 +113,13 @@ always @(*) begin
 end
 assign data_out = {q1, q2};
 // --- data_out 输出逻辑 ---
-// 当 radddr 为偶数 (0, 2, 4...):
-// SRAM1 取“顺向”数据：$A1 = radddr / 2$
-// SRAM2 取“逆向”数据：$A2 = 17 - (radddr / 2)$
+// 当 raddr 为偶数 (0, 2, 4...):
+// SRAM1 取“顺向”数据：$A1 = raddr / 2$
+// SRAM2 取“逆向”数据：$A2 = 17 - (raddr / 2)$
 // 拼接顺序：{q1, q2} (即 SRAM1 在前)
-// 当 radddr 为奇数 (1, 3, 5...):
-// SRAM1 取“逆向”数据：$A1 = 17 - (radddr >> 1)$
-// SRAM2 取“顺向”数据：$A2 = (radddr >> 1)$
+// 当 raddr 为奇数 (1, 3, 5...):
+// SRAM1 取“逆向”数据：$A1 = 17 - (raddr >> 1)$
+// SRAM2 取“顺向”数据：$A2 = (raddr >> 1)$
 // 拼接顺序：{q2, q1} (即 SRAM2 在前)
 
 
