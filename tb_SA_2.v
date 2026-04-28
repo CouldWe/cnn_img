@@ -13,6 +13,18 @@ wire signed [4*32-1:0]      data_out;   // 4通道 * 32bit
 reg  [5:0]                  buffer1_addr;
 
 // ============================================================
+// Bias 和量化相关信号
+// ============================================================
+parameter signed [15:0] BIAS_CH1 = 16'd1009;
+parameter signed [15:0] BIAS_CH2 = -16'd1164;
+parameter signed [15:0] BIAS_CH3 = -16'd788;
+parameter signed [15:0] BIAS_CH4 = 16'd1016;
+
+wire signed [31:0] after_bias [3:0];      // 4个通道加bias后的结果
+reg  signed [31:0] quantBuffer [3:0];     // 4个通道的量化输入缓冲
+wire signed [7:0]  after_quant [3:0];     // 4个通道量化后的结果
+
+// ============================================================
 // 实例化被测模块
 // ============================================================
 SA_2 uut (
@@ -22,6 +34,62 @@ SA_2 uut (
     .weight         (weight),
     .data_out       (data_out),
     .buffer1_addr   (buffer1_addr)
+);
+
+// ============================================================
+// 后处理：偏置、重量化（4个通道）
+// ============================================================
+// 通道1：加bias
+assign after_bias[0] = $signed(data_out[31:0]) + $signed(BIAS_CH1);
+// 通道2：加bias
+assign after_bias[1] = $signed(data_out[63:32]) + $signed(BIAS_CH2);
+// 通道3：加bias
+assign after_bias[2] = $signed(data_out[95:64]) + $signed(BIAS_CH3);
+// 通道4：加bias
+assign after_bias[3] = $signed(data_out[127:96]) + $signed(BIAS_CH4);
+
+// bias后的结果打一拍
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        quantBuffer[0] <= 32'd0;
+        quantBuffer[1] <= 32'd0;
+        quantBuffer[2] <= 32'd0;
+        quantBuffer[3] <= 32'd0;
+    end else begin
+        quantBuffer[0] <= after_bias[0];
+        quantBuffer[1] <= after_bias[1];
+        quantBuffer[2] <= after_bias[2];
+        quantBuffer[3] <= after_bias[3];
+    end
+end
+
+// 量化模块（4个通道）
+rescale_dwconv quant_ch1 (
+    .clk        (clk),
+    .rst_n      (rst_n),
+    .data_in    (quantBuffer[0]),
+    .data_out   (after_quant[0])
+);
+
+rescale_dwconv quant_ch2 (
+    .clk        (clk),
+    .rst_n      (rst_n),
+    .data_in    (quantBuffer[1]),
+    .data_out   (after_quant[1])
+);
+
+rescale_dwconv quant_ch3 (
+    .clk        (clk),
+    .rst_n      (rst_n),
+    .data_in    (quantBuffer[2]),
+    .data_out   (after_quant[2])
+);
+
+rescale_dwconv quant_ch4 (
+    .clk        (clk),
+    .rst_n      (rst_n),
+    .data_in    (quantBuffer[3]),
+    .data_out   (after_quant[3])
 );
 
 // ============================================================
@@ -311,13 +379,30 @@ initial cycle_cnt = 0;
 always @(posedge clk) begin
     if (rst_n) begin
         cycle_cnt <= cycle_cnt + 1;
-        $display("Cycle %0d | addr=%0d | data_out=[%0d, %0d, %0d, %0d]",
-            cycle_cnt,
-            buffer1_addr,
+        $display("Cycle %0d | addr=%0d", cycle_cnt, buffer1_addr);
+        $display("  data_out    = [%0d, %0d, %0d, %0d]",
             $signed(data_out[31:0]),
             $signed(data_out[63:32]),
             $signed(data_out[95:64]),
             $signed(data_out[127:96])
+        );
+        $display("  after_bias  = [%0d, %0d, %0d, %0d]",
+            $signed(after_bias[0]),
+            $signed(after_bias[1]),
+            $signed(after_bias[2]),
+            $signed(after_bias[3])
+        );
+        $display("  quantBuffer = [%0d, %0d, %0d, %0d]",
+            $signed(quantBuffer[0]),
+            $signed(quantBuffer[1]),
+            $signed(quantBuffer[2]),
+            $signed(quantBuffer[3])
+        );
+        $display("  after_quant = [%0d, %0d, %0d, %0d]",
+            $signed(after_quant[0]),
+            $signed(after_quant[1]),
+            $signed(after_quant[2]),
+            $signed(after_quant[3])
         );
     end
 end

@@ -13,6 +13,14 @@ wire signed  [31:0]     data_out;
 reg                     m_control_sa2;
 
 // ============================================================
+// Bias 和量化相关信号
+// ============================================================
+parameter signed [15:0] BIAS = 16'd1009;  // bias值
+wire signed [31:0] after_bias;            // 加bias后的结果
+reg  signed [31:0] quantBuffer;           // 量化输入缓冲
+wire signed [7:0]  after_quant;           // 量化后的结果
+
+// ============================================================
 // 实例化被测模块
 // ============================================================
 SA_channel_2 uut (
@@ -22,6 +30,28 @@ SA_channel_2 uut (
     .weight         (weight),
     .data_out       (data_out),
     .m_control_sa2  (m_control_sa2)
+);
+
+// ============================================================
+// 后处理：偏置、重量化
+// ============================================================
+// 加bias
+assign after_bias = $signed(data_out) + $signed(BIAS);
+
+// bias后的结果打一拍
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+        quantBuffer <= 32'd0;
+    else
+        quantBuffer <= after_bias;
+end
+
+// 量化模块
+rescale_dwconv quant_inst (
+    .clk        (clk),
+    .rst_n      (rst_n),
+    .data_in    (quantBuffer),
+    .data_out   (after_quant)
 );
 
 // ============================================================
@@ -152,14 +182,16 @@ initial cycle_cnt = 0;
 always @(posedge clk) begin
     if (rst_n) begin
         cycle_cnt <= cycle_cnt + 1;
-        $display("Cycle %0d | m_ctrl=%b | data_in=[%0d,%0d,%0d] | data_out=%0d (0x%08h)",
+        $display("Cycle %0d | m_ctrl=%b | data_in=[%0d,%0d,%0d] | data_out=%0d | after_bias=%0d | quantBuffer=%0d | after_quant=%0d",
             cycle_cnt,
             m_control_sa2,
             $signed(data_in[7:0]),
             $signed(data_in[15:8]),
             $signed(data_in[23:16]),
             $signed(data_out),
-            data_out
+            $signed(after_bias),
+            $signed(quantBuffer),
+            $signed(after_quant)
         );
     end
 end
