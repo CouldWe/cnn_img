@@ -48,12 +48,20 @@ parameter signed [31:0] bias_1 = -2337;
 parameter signed [31:0] M0 = 11;
 parameter integer n = 15;
 
-// Quantized output signals
+// Quantized output signals with floor rounding
 wire signed [31:0] out_0;
 wire signed [31:0] out_1;
 
-assign out_0 = (temp_out_0 + bias_0) * M0 / (1 << n);
-assign out_1 = (temp_out_1 + bias_1) * M0 / (1 << n);
+// Intermediate values
+wire signed [63:0] product_0;
+wire signed [63:0] product_1;
+
+assign product_0 = (temp_out_0 + bias_0) * M0;
+assign product_1 = (temp_out_1 + bias_1) * M0;
+
+// Floor division: arithmetic right shift implements floor for signed numbers
+assign out_0 = product_0 >>> n;
+assign out_1 = product_1 >>> n;
 
 // Initialize test data
 initial begin
@@ -413,13 +421,13 @@ initial begin
     end
     #20;
 
-    // Wait for adder tree pipeline to flush (4 FF stages + 1 extra cycle)
-    // Channel 0 result enters pipeline at cnt=17, channel 1 at cnt=0 (next cycle)
-    // Both valid at data_out after 4 more pipeline stages
-    for (i = 0; i < 5; i = i + 1) begin
-        #10;
-    end
-    
+    // Disable after 18 cycles to prevent cnt from continuing
+    enable = 0;
+
+    // Wait for adder tree pipeline to flush (4 FF stages)
+    // The results from cnt=16 (channel 0) and cnt=17 (channel 1) need 4 cycles to propagate
+    #40;
+
     // Display final results
     $display("========================================");
     $display("Test Completed at time %0t", $time);
