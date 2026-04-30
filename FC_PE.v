@@ -23,18 +23,16 @@ reg     signed [31:0]   mux_11;
 always@(posedge clk or negedge rst_n)begin
     if(!rst_n)
         cnt <= 5'b0;
-    else if(enable)
-        cnt <= cnt + 1;
+    else if(enable) begin
+        if(cnt == 17)
+            cnt <= 5'b0;  // 重新开始计数
+        else
+            cnt <= cnt + 1;
+    end
     else
-        cnt <= cnt;   
+        cnt <= cnt;
 end
-//测试线
-wire signed [7:0]   testPoint0;
-wire signed [7:0]   testPoint1;
-wire signed [7:0]   testPoint2;
-assign testPoint0   =   weight[0*8+7:0*8];
-assign testPoint1   =   weight[1*8+7:1*8];
-assign testPoint2   =   weight[17*8+7:17*8];
+
 //cnt从0到17依次选择weight[0]到weight[17]
 always@(*) begin
     case(cnt)
@@ -71,13 +69,14 @@ always@(*) begin
     endcase
 end
 
-//mux_01：当cnt不是最后一个周期且enable有效时，将mux_00与当前的partial_sum_0相加，用于更新，否则清零
+//mux_01：当enable有效时，将mux_00与当前的partial_sum_0相加，用于更新；cnt==0时从0开始累加
 always@(*) begin
-    case(cnt == 17|| !enable)
-        0:mux_01 = $signed(mux_00) + $signed(partial_sum_0);
-        1:mux_01 = 32'b0;
-        default:mux_01 = 32'b0;
-    endcase
+    if(!enable)
+        mux_01 = 32'b0;
+    else if(cnt == 0)
+        mux_01 = $signed(mux_00);  // cnt=0时，从mux_00开始（不加partial_sum_0）
+    else
+        mux_01 = $signed(mux_00) + $signed(partial_sum_0);
 end
 
 //mux_10：cnt为奇数时选择product，否则0，因为通道1在奇数周期累加
@@ -89,13 +88,14 @@ always@(*) begin
     endcase
 end
 
-//mux_11：当cnt不等于0时，将mux_10与partial_sum_1相加，用于更新，当cnt==0时清零
+//mux_11：当enable有效时，将mux_10与partial_sum_1相加，用于更新；cnt==1时从0开始累加
 always@(*) begin
-    case(cnt == 0)
-        0:mux_11 = $signed(mux_10) + $signed(partial_sum_1);
-        1:mux_11 = 32'b0;
-        default:mux_11 = 32'b0;
-    endcase
+    if(!enable)
+        mux_11 = 32'b0;
+    else if(cnt == 1)
+        mux_11 = $signed(mux_10);  // cnt=1时，从mux_10开始（不加partial_sum_1）
+    else
+        mux_11 = $signed(mux_10) + $signed(partial_sum_1);
 end
 
 //partial_sum_0

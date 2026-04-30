@@ -4,8 +4,8 @@ module FC(
     input wire                          rst_n,
     input wire                          enable,
     input wire signed [255:0]           data_in, //32*8bit
-    input wire signed [4607:0]          weight,  //32*144bit
-    input wire signed [63:0]            data_out //2*32bit两个通道的结果
+    input wire signed [4607:0]          weight,  //32*2*9*8bit
+    output wire signed [63:0]           data_out //2*32bit两个通道的结果
 );
 
 genvar k;
@@ -14,28 +14,15 @@ wire signed [31:0] output_temp_1 [31:0];//通道1的部分和
 
 generate
     for(k = 0;k < 32;k = k + 1)begin:pe_loop
-        if(k == 0)begin
-            FC_PE       pe(
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .enable     (enable),
-                .data_in    (data_in[8*k+7:8*k]),
-                .weight     (weight[144*k+143:144*k]),
-                .temp_out_0 (output_temp_0[k]),
-                .temp_out_1 (output_temp_1[k])
-            );
-        end
-        else begin
-            FC_PE       pe(
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .enable     (enable),
-                .data_in    (data_in[8*k+7:8*k]),
-                .weight     (weight[144*k+143:144*k]),
-                .temp_out_0 (output_temp_0[k]),
-                .temp_out_1 (output_temp_1[k])
-            );
-        end
+        FC_PE       pe(
+            .clk        (clk),
+            .rst_n      (rst_n),
+            .enable     (enable),
+            .data_in    (data_in[8*k+7:8*k]),
+            .weight     (weight[144*k+143:144*k]),
+            .temp_out_0 (output_temp_0[k]),
+            .temp_out_1 (output_temp_1[k])
+        );
     end
 endgenerate
 //加法树：将32个PE的通道0部分和累加成32位结果
